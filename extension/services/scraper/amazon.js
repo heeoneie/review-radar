@@ -239,15 +239,33 @@ window.AmazonScraper = (() => {
   function getRatingDistribution() {
     const dist = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
 
-    // 방법 1: aria-label에 "% of reviews have N stars" 또는 "별 N개" 형태로 파싱
-    // 아마존이 언어/레이아웃에 따라 히스토그램 구조를 자주 바꾸므로 다양한 방법 시도
+    // 방법 0: .a-meter[aria-valuenow] — Amazon이 접근성용으로 항상 넣는 속성 (가장 신뢰)
+    const meters = document.querySelectorAll('.a-meter[aria-valuenow]');
+    if (meters.length >= 2) {
+      let fallbackIdx = 5;
+      meters.forEach(m => {
+        const pct = parseInt(m.getAttribute('aria-valuenow'));
+        if (isNaN(pct)) return;
+        // 가까운 <tr>에서 별점 숫자 추출
+        const row = m.closest('tr');
+        if (row) {
+          const txt = row.querySelector('td')?.textContent || '';
+          const sm  = txt.match(/\b([1-5])\b/);
+          if (sm) { dist[parseInt(sm[1])] = pct; return; }
+        }
+        // 행 파싱 실패 시 5→1 순서로 대입
+        if (fallbackIdx >= 1) dist[fallbackIdx--] = pct;
+      });
+      if (Object.values(dist).some(v => v > 0)) return dist;
+    }
+
+    // 방법 1: aria-label에 "N percent of reviews have M stars" 형태 파싱
     const ariaLinks = document.querySelectorAll(
       '[aria-label*="star"], [aria-label*="별"], ' +
       '[aria-label*="Stars"], [aria-label*="stars"]'
     );
     ariaLinks.forEach(el => {
       const label = el.getAttribute('aria-label') || '';
-      // "73 percent of reviews have 5 stars" / "73% of reviews have 5 stars"
       const m = label.match(/(\d+)\s*%?\s*(?:percent|of).*?(\d)\s*star/i) ||
                 label.match(/별\s*(\d+)개.*?(\d+)\s*%/i);
       if (m) {
@@ -256,40 +274,32 @@ window.AmazonScraper = (() => {
         if (stars >= 1 && stars <= 5 && !isNaN(pct)) dist[stars] = pct;
       }
     });
+    if (Object.values(dist).some(v => v > 0)) return dist;
 
-    // 방법 2: 히스토그램 테이블 행에서 숫자 추출
-    if (Object.values(dist).every(v => v === 0)) {
-      const rows = document.querySelectorAll(
-        '#histogramTable tr, .a-histogram-row, [data-hook="rating-histogram"] tr, ' +
-        'table.a-normal tr, .cr-widget-histogram tr'
-      );
-      rows.forEach(row => {
-        const cells = row.querySelectorAll('td, th, span');
-        let stars = null, pct = null;
-        cells.forEach(cell => {
-          const t = cell.textContent.trim();
-          if (/^[1-5]$/.test(t) || /^[1-5]\s*(star|별)/i.test(t)) {
-            stars = parseInt(t);
-          }
-          if (/^\d{1,3}%$/.test(t)) {
-            pct = parseInt(t);
-          }
-        });
-        if (stars && pct !== null && !isNaN(pct)) dist[stars] = pct;
+    // 방법 2: 히스토그램 테이블 행에서 별점 + 퍼센트 추출
+    const rows = document.querySelectorAll(
+      '#histogramTable tr, .a-histogram-row, [data-hook="rating-histogram"] tr, ' +
+      'table.a-normal tr, .cr-widget-histogram tr'
+    );
+    rows.forEach(row => {
+      const cells = row.querySelectorAll('td, th, span');
+      let stars = null, pct = null;
+      cells.forEach(cell => {
+        const t = cell.textContent.trim();
+        if (/^[1-5]$/.test(t) || /^[1-5]\s*(star|별)/i.test(t)) stars = parseInt(t);
+        if (/^\d{1,3}%$/.test(t)) pct = parseInt(t);
       });
-    }
+      if (stars && pct !== null && !isNaN(pct)) dist[stars] = pct;
+    });
+    if (Object.values(dist).some(v => v > 0)) return dist;
 
-    // 방법 3: 페이지 내 별점 분포 텍스트 파싱 (73%, 11% 형태로 나열된 경우)
-    if (Object.values(dist).every(v => v === 0)) {
-      const pctEls = document.querySelectorAll('.a-text-right .a-size-base, .cr-widget-histogram .a-text-right');
-      let starIndex = 5;
-      pctEls.forEach(el => {
-        const t = el.textContent.trim();
-        if (/^\d{1,3}%$/.test(t) && starIndex >= 1) {
-          dist[starIndex--] = parseInt(t);
-        }
-      });
-    }
+    // 방법 3: .a-text-right .a-size-base 순서 파싱 (5→1)
+    const pctEls = document.querySelectorAll('.a-text-right .a-size-base, .cr-widget-histogram .a-text-right');
+    let starIndex = 5;
+    pctEls.forEach(el => {
+      const t = el.textContent.trim();
+      if (/^\d{1,3}%$/.test(t) && starIndex >= 1) dist[starIndex--] = parseInt(t);
+    });
 
     return dist;
   }
