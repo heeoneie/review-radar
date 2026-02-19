@@ -71,7 +71,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const stats = res.stats || { analyzed: 0, fakesDetected: 0 };
         stats.analyzed += 1;
         if (msg.grade === 'D' || msg.grade === 'F') stats.fakesDetected += 1;
-        chrome.storage.local.set({ stats });
+        chrome.storage.local.set({ stats }, () => sendResponse({ success: true }));
       });
       return true;
 
