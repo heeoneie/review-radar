@@ -93,17 +93,38 @@ window.AmazonScraper = (() => {
 
   const FETCH_BATCH = 5; // 동시 요청 수
 
-  async function fetchReviewPage(asin, pageNum) {
-    const url = `https://www.amazon.com/product-reviews/${asin}?pageNumber=${pageNum}`;
+  // 현재 페이지에서 "See all reviews" 링크 URL 베이스 추출 (product slug 포함)
+  function getReviewsBaseUrl(asin) {
+    const el = document.querySelector(
+      '[data-hook="see-all-reviews-link-foot"], ' +
+      '[data-hook="see-all-reviews-link-top"], ' +
+      `a[href*="product-reviews/${asin}"]`
+    );
+    if (el?.href) return el.href.split('?')[0].split('#')[0];
+    return `https://www.amazon.com/product-reviews/${asin}`;
+  }
+
+  async function fetchReviewPage(baseUrl, pageNum) {
+    const url = `${baseUrl}?ie=UTF8&reviewerType=all_reviews&pageNumber=${pageNum}`;
     try {
-      const res = await fetch(url, { credentials: 'include' });
-      if (!res.ok) return null;
-      if (res.url.includes('/ap/') || res.url.includes('/robot')) return null;
+      const res = await fetch(url, {
+        credentials: 'include',
+        headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+      });
+      if (!res.ok) {
+        console.warn(`[ReviewRadar] Page ${pageNum}: HTTP ${res.status}`);
+        return null;
+      }
+      if (res.url.includes('/ap/') || res.url.includes('/robot')) {
+        console.warn(`[ReviewRadar] Page ${pageNum}: redirected to login/captcha`);
+        return null;
+      }
 
       const html = await res.text();
       const doc  = new DOMParser().parseFromString(html, 'text/html');
 
       const reviewEls = doc.querySelectorAll('[data-hook="review"]');
+      console.log(`[ReviewRadar] Page ${pageNum}: ${reviewEls.length} reviews (${res.url.slice(0, 80)})`);
       if (reviewEls.length === 0) return null;
 
       const reviews = [];
@@ -121,13 +142,16 @@ window.AmazonScraper = (() => {
   }
 
   async function fetchAllReviews(asin) {
+    const baseUrl = getReviewsBaseUrl(asin);
+    console.log(`[ReviewRadar] Review base URL: ${baseUrl}`);
+
     const allReviews = [];
     const seen = new Set();
     let startPage = 1;
 
     while (true) {
       const pageNums = Array.from({ length: FETCH_BATCH }, (_, i) => startPage + i);
-      const settled  = await Promise.allSettled(pageNums.map(p => fetchReviewPage(asin, p)));
+      const settled  = await Promise.allSettled(pageNums.map(p => fetchReviewPage(baseUrl, p)));
 
       // 이 배치에서 리뷰가 있는 마지막 페이지 인덱스 찾기
       let lastFilledIdx = -1;
