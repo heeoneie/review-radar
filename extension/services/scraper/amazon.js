@@ -88,47 +88,54 @@ window.AmazonScraper = (() => {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 2순위: XHR/Fetch 인터셉션
-  // MAIN world 스크립트를 동적으로 주입해서 window.fetch / XHR 래핑
-  // content script(isolated world) ↔ 주입 스크립트(main world) 는
-  // window.postMessage 로 통신
+  // 2순위: 리뷰 페이지 직접 fetch (최대 5페이지 = 50개)
+  // XHR 인터셉터 대기보다 훨씬 신뢰성 높음
   // ─────────────────────────────────────────────────────────────────────────
 
-  let _interceptedReviews = null;
+  const MAX_PAGES = 5;
 
-  function injectInterceptor() {
-    if (document.getElementById('rr-interceptor')) return;
+  async function fetchAllReviews(asin) {
+    const allReviews = [];
+    const seen = new Set();
 
-    // 인라인 script는 Amazon CSP에 막히므로 web_accessible_resources 파일을 src로 주입
-    const script = document.createElement('script');
-    script.id  = 'rr-interceptor';
-    script.src = chrome.runtime.getURL('content/interceptor.js');
-    (document.head || document.documentElement).appendChild(script);
-  }
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const url = `https://www.amazon.com/product-reviews/${asin}?pageNumber=${page}`;
+      try {
+        const res = await fetch(url, { credentials: 'include' });
+        if (!res.ok) break;
 
-  function waitForInterceptedReviews(timeoutMs = 5000) {
-    return new Promise(resolve => {
-      if (_interceptedReviews) return resolve(_interceptedReviews);
+        // CAPTCHA / 로그인 페이지 리다이렉트 감지
+        if (res.url.includes('/ap/') || res.url.includes('/robot')) break;
 
-      const handler = e => {
-        if (e.data?.__rrType === 'REVIEWS_INTERCEPTED') {
-          window.removeEventListener('message', handler);
-          clearTimeout(timer);
-          const reviews = e.data.reviews.map(r => ({
-            ...r,
-            date: r.date ? new Date(r.date) : null,
-          }));
-          _interceptedReviews = reviews;
-          resolve(reviews);
-        }
-      };
+        const html = await res.text();
+        const doc  = new DOMParser().parseFromString(html, 'text/html');
 
-      window.addEventListener('message', handler);
-      const timer = setTimeout(() => {
-        window.removeEventListener('message', handler);
-        resolve(null);
-      }, timeoutMs);
-    });
+        const reviewEls = doc.querySelectorAll('[data-hook="review"]');
+        if (reviewEls.length === 0) break;
+
+        let added = 0;
+        reviewEls.forEach((el, idx) => {
+          const r = parseSingleReview(el, `p${page}-${idx}`);
+          if (r?.body?.length > 0 && !seen.has(r.id)) {
+            seen.add(r.id);
+            allReviews.push(r);
+            added++;
+          }
+        });
+
+        if (added === 0) break;
+
+        // 다음 페이지 버튼 없으면 종료
+        if (!doc.querySelector('li.a-last:not(.a-disabled)')) break;
+
+      } catch (e) {
+        console.warn(`[ReviewRadar] Page ${page} fetch error:`, e);
+        break;
+      }
+    }
+
+    console.log(`[ReviewRadar] Tier-2: fetched ${allReviews.length} reviews across pages`);
+    return allReviews;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -309,21 +316,18 @@ window.AmazonScraper = (() => {
   // ─────────────────────────────────────────────────────────────────────────
 
   async function scrapeAll() {
-    // 인터셉터를 가장 먼저 주입 (페이지 XHR 캐치)
-    injectInterceptor();
-
     const product = getProductInfo();
 
-    // 1순위: 임베딩 JSON
+    // 1순위: 임베딩 JSON (SSR 데이터 있는 경우)
     let reviews = tryExtractEmbeddedJSON();
 
-    // 2순위: XHR 인터셉션 대기 (이미 발생했거나 곧 발생할 것)
+    // 2순위: 리뷰 페이지 직접 fetch (최대 5페이지 = 50개)
     if (!reviews || reviews.length === 0) {
-      console.log('[ReviewRadar] Tier-1 miss → waiting for XHR intercept...');
-      reviews = await waitForInterceptedReviews(4000);
+      console.log('[ReviewRadar] Tier-1 miss → fetching review pages...');
+      if (product.asin) reviews = await fetchAllReviews(product.asin);
     }
 
-    // 3순위: DOM 파싱
+    // 3순위: DOM 파싱 (현재 페이지 10개, 최후 수단)
     if (!reviews || reviews.length === 0) {
       console.log('[ReviewRadar] Tier-2 miss → DOM fallback');
       reviews = scrapeReviewsFromDOM();
