@@ -89,6 +89,8 @@
 
   function setCache(asin, data) {
     try { localStorage.setItem(`rr_${asin}`, JSON.stringify(data)); } catch {}
+    // popup이 service worker 경유로 조회하므로 chrome.storage에도 동기화
+    chrome.runtime.sendMessage({ type: 'SET_CACHE', asin, data });
   }
 
   function getApiKey() {
