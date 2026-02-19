@@ -128,6 +128,9 @@ window.AmazonScraper = (() => {
       iframe.onload = () => {
         try {
           const loc = iframe.contentWindow?.location?.href || '';
+          // about:blank는 초기 상태 — 실제 URL 로드 대기
+          if (!loc || loc === 'about:blank') return;
+
           if (loc.includes('/ap/') || loc.includes('/robot') || loc.includes('/signin')) {
             console.warn('[ReviewRadar] iframe redirected to auth page');
             return cleanup(null);
@@ -152,8 +155,9 @@ window.AmazonScraper = (() => {
       };
 
       iframe.onerror = () => cleanup(null);
+      // src를 먼저 설정한 뒤 DOM에 추가 → about:blank 초기 onload 방지
+      iframe.src = url;
       document.body.appendChild(iframe);
-      iframe.src = url; // src는 DOM 추가 후 설정
     });
   }
 
