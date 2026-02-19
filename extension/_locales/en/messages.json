@@ -1,0 +1,14 @@
+{
+  "appName": {
+    "message": "Review Radar",
+    "description": "Extension name"
+  },
+  "appShortName": {
+    "message": "ReviewRadar",
+    "description": "Short name"
+  },
+  "appDescription": {
+    "message": "Detects fake reviews on Amazon product pages using pattern analysis and AI.",
+    "description": "Extension description shown in Chrome Web Store"
+  }
+}
