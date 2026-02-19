@@ -25,7 +25,12 @@
 
     // 2. 백그라운드 탭으로 전체 리뷰 수집 (느리지만 완전함)
     const allTabReviews = await getAllReviews(ASIN);
-    if (allTabReviews) scraped.reviews = allTabReviews;
+    if (allTabReviews) {
+      console.log('[ReviewRadar] Tab scraping success:', allTabReviews.length, 'reviews');
+      scraped.reviews = allTabReviews;
+    } else {
+      console.log('[ReviewRadar] Tab scraping failed/empty, using DOM reviews:', scraped.reviews.length);
+    }
 
     if (!scraped.reviews.length) {
       showMessage('No reviews found on this page');
