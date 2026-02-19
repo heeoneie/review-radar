@@ -20,8 +20,12 @@
   showLoading();
 
   try {
-    // 1. 스크래핑
+    // 1. 상품 정보 + DOM 리뷰 (빠름)
     const scraped = await window.AmazonScraper.scrapeAll();
+
+    // 2. 백그라운드 탭으로 전체 리뷰 수집 (느리지만 완전함)
+    const allTabReviews = await getAllReviews(ASIN);
+    if (allTabReviews) scraped.reviews = allTabReviews;
 
     if (!scraped.reviews.length) {
       showMessage('No reviews found on this page');
@@ -110,6 +114,33 @@
 
   function showLoading() {
     mountBadge('loading', '···');
+  }
+
+  function updateLoadingText(text) {
+    const badge = document.getElementById('rr-badge');
+    if (badge) badge.setAttribute('title', text);
+  }
+
+  async function getAllReviews(asin) {
+    updateLoadingText('Fetching all reviews...');
+
+    const onProgress = msg => {
+      if (msg.type === 'SCRAPE_PROGRESS') {
+        updateLoadingText(`Fetching reviews... (${msg.count} found)`);
+      }
+    };
+    chrome.runtime.onMessage.addListener(onProgress);
+
+    try {
+      const result = await new Promise(resolve =>
+        chrome.runtime.sendMessage({ type: 'SCRAPE_ALL_REVIEWS', asin }, resolve)
+      );
+      return result?.reviews?.length > 0 ? result.reviews : null;
+    } catch {
+      return null;
+    } finally {
+      chrome.runtime.onMessage.removeListener(onProgress);
+    }
   }
 
   function showMessage(msg) {
