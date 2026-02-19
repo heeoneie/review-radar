@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Review Radar</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+
+  <header class="header">
+    <div class="header__brand">
+      <span class="header__icon">🔍</span>
+      <span class="header__name">Review Radar</span>
+    </div>
+    <span class="header__version">v1.0</span>
+  </header>
+
+  <main>
+
+    <!-- 현재 페이지 상태 -->
+    <section class="section" id="status-section">
+      <div id="status-idle" class="status status--idle">
+        <p class="status__msg">Visit an Amazon product page to start analysis.</p>
+      </div>
+
+      <div id="status-result" class="status status--result hidden">
+        <div class="result-row">
+          <div class="result-grade" id="result-grade">–</div>
+          <div class="result-info">
+            <div class="result-score" id="result-score">–/100</div>
+            <div class="result-desc"  id="result-desc">–</div>
+            <div class="result-meta"  id="result-meta">–</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- API 키 설정 -->
+    <section class="section">
+      <div class="section__label">OpenAI API Key <span class="badge-optional">optional</span></div>
+      <div class="api-row">
+        <input
+          type="password"
+          id="api-key-input"
+          class="input"
+          placeholder="sk-..."
+          autocomplete="off"
+          spellcheck="false"
+        >
+        <button id="api-key-toggle" class="btn-icon" title="Show/hide key">👁</button>
+      </div>
+      <div class="api-actions">
+        <button id="api-key-save"  class="btn btn--primary">Save</button>
+        <button id="api-key-clear" class="btn btn--ghost">Clear</button>
+      </div>
+      <p class="hint">Key is stored locally. Enables GPT-4o-mini analysis for higher accuracy.</p>
+      <div id="api-status" class="api-status hidden"></div>
+    </section>
+
+    <!-- 통계 -->
+    <section class="section">
+      <div class="section__label">Session Stats</div>
+      <div class="stats-row">
+        <div class="stat">
+          <span class="stat__val" id="stat-analyzed">0</span>
+          <span class="stat__key">Analyzed</span>
+        </div>
+        <div class="stat">
+          <span class="stat__val" id="stat-fakes">0</span>
+          <span class="stat__key">Fakes detected</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <a href="https://github.com/heeoneie/review-radar" target="_blank" rel="noopener">GitHub</a>
+    · Made for smarter shopping
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
