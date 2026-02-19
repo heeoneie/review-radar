@@ -156,7 +156,10 @@
     panel.innerHTML = `
       <div class="rr-panel__header">
         <span class="rr-panel__title">🔍 Review Radar</span>
-        <button class="rr-panel__close" id="rr-close" aria-label="Close">✕</button>
+        <div class="rr-panel__actions">
+          <button class="rr-btn-icon" id="rr-refresh" title="Re-analyze (clear cache)">↺</button>
+          <button class="rr-panel__close" id="rr-close" aria-label="Close">✕</button>
+        </div>
       </div>
 
       <div class="rr-panel__body">
@@ -202,6 +205,11 @@
     panel.querySelector('#rr-close').addEventListener('click', () =>
       panel.classList.remove('rr-panel--open')
     );
+    panel.querySelector('#rr-refresh').addEventListener('click', () => {
+      try { localStorage.removeItem(`rr_${ASIN}`); } catch {}
+      chrome.runtime.sendMessage({ type: 'SET_CACHE', asin: ASIN, data: null });
+      location.reload();
+    });
     return panel;
   }
 
