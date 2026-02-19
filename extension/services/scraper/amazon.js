@@ -88,86 +88,118 @@ window.AmazonScraper = (() => {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 2순위: 페이지 내 pagination 버튼 클릭 → Amazon 자체 AJAX 유발 → 인터셉터 캐치
-  // (직접 fetch는 Amazon이 Sec-Fetch-Mode 헤더로 차단하므로 이 방식 사용)
+  // 2순위: 숨겨진 iframe으로 product-reviews 페이지 로딩
+  // fetch()는 Sec-Fetch-Mode: no-cors → Amazon 차단
+  // iframe은 Sec-Fetch-Mode: navigate → 실제 브라우저 탐색으로 인식
   // ─────────────────────────────────────────────────────────────────────────
 
-  const PAGE_LIMIT = 10; // 최대 10페이지 클릭 (100개)
+  const IFRAME_MAX_PAGES = 5; // 최대 50개
 
-  function injectInterceptor() {
-    if (document.getElementById('rr-interceptor')) return;
-    const script = document.createElement('script');
-    script.id  = 'rr-interceptor';
-    script.src = chrome.runtime.getURL('content/interceptor.js');
-    (document.head || document.documentElement).appendChild(script);
-  }
-
-  // 다음 페이지 버튼 셀렉터 (다양한 Amazon DOM 구조 대응)
-  function findNextPageBtn() {
-    return document.querySelector(
-      '[data-hook="review-next-page-button"], ' +
-      '#cm_cr-pagination_bar .a-last:not(.a-disabled) a, ' +
-      '.cr-widget-Reviews .a-pagination .a-last:not(.a-disabled) a, ' +
-      '#reviews-paginationbar .a-last:not(.a-disabled) a, ' +
-      '.a-pagination .a-last:not(.a-disabled) a'
+  function getReviewsBaseUrl(asin) {
+    const el = document.querySelector(
+      `[data-hook="see-all-reviews-link-foot"], [data-hook="see-all-reviews-link-top"], a[href*="product-reviews/${asin}"]`
     );
+    if (el?.href) {
+      // /ref=... 경로 접미사와 쿼리스트링 제거
+      // 예: https://www.amazon.com/-/ko/product-reviews/B0CK99VP7J/ref=xxx?ie=UTF8...
+      //  → https://www.amazon.com/-/ko/product-reviews/B0CK99VP7J
+      return el.href.split('?')[0].replace(/\/ref=.*$/, '');
+    }
+    return `https://www.amazon.com/product-reviews/${asin}`;
   }
 
-  async function scrapeWithPagination() {
-    injectInterceptor();
+  function loadViaIframe(url) {
+    return new Promise(resolve => {
+      const iframe = document.createElement('iframe');
+      // 숨김 처리 (사용자에게 보이지 않게)
+      iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1920px;height:1080px;opacity:0;pointer-events:none;z-index:-1;';
 
-    const allReviews = [];
-    const seen = new Set();
-    const addReviews = (list) => list.forEach(r => {
-      if (r?.body?.length > 0 && !seen.has(r.id)) { seen.add(r.id); allReviews.push(r); }
-    });
+      const cleanup = (result) => {
+        clearTimeout(timer);
+        if (document.body.contains(iframe)) document.body.removeChild(iframe);
+        resolve(result);
+      };
 
-    // 인터셉터 메시지 리스너 (클릭당 다음 AJAX 응답 하나만 대기)
-    let pendingResolve = null;
-    const msgHandler = (e) => {
-      if (e.data?.__rrType !== 'REVIEWS_INTERCEPTED' || !pendingResolve) return;
-      const reviews = e.data.reviews.map(r => ({ ...r, date: r.date ? new Date(r.date) : null }));
-      pendingResolve(reviews);
-      pendingResolve = null;
-    };
-    window.addEventListener('message', msgHandler);
+      const timer = setTimeout(() => {
+        console.warn('[ReviewRadar] iframe timeout');
+        cleanup(null);
+      }, 10000);
 
-    const waitForAjax = (ms = 4000) => new Promise(resolve => {
-      pendingResolve = resolve;
-      setTimeout(() => { if (pendingResolve === resolve) { pendingResolve = null; resolve(null); } }, ms);
-    });
+      iframe.onload = () => {
+        try {
+          const loc = iframe.contentWindow?.location?.href || '';
+          if (loc.includes('/ap/') || loc.includes('/robot') || loc.includes('/signin')) {
+            console.warn('[ReviewRadar] iframe redirected to auth page');
+            return cleanup(null);
+          }
 
-    try {
-      // 1페이지: 현재 DOM 파싱
-      addReviews(scrapeReviewsFromDOM());
-      console.log(`[ReviewRadar] Page 1 (DOM): ${allReviews.length} reviews`);
+          const doc = iframe.contentDocument;
+          const reviewEls = doc?.querySelectorAll('[data-hook="review"]') || [];
+          console.log(`[ReviewRadar] iframe: ${reviewEls.length} reviews at ${loc.slice(0, 80)}`);
 
-      // 2페이지~: Next 버튼 클릭 → AJAX 인터셉트
-      for (let page = 2; page <= PAGE_LIMIT; page++) {
-        const nextBtn = findNextPageBtn();
-        if (!nextBtn) { console.log('[ReviewRadar] No next page button, stopping'); break; }
+          const reviews = [];
+          reviewEls.forEach((el, idx) => {
+            const r = parseSingleReview(el, `fr-${idx}`);
+            if (r?.body?.length > 0) reviews.push(r);
+          });
 
-        const ajaxPromise = waitForAjax(4000);
-        nextBtn.click();
-
-        const intercepted = await ajaxPromise;
-        if (intercepted && intercepted.length > 0) {
-          addReviews(intercepted);
-          console.log(`[ReviewRadar] Page ${page} (AJAX): +${intercepted.length}, total ${allReviews.length}`);
-        } else {
-          // AJAX 미수신 시 DOM 재파싱 (fallback)
-          await new Promise(r => setTimeout(r, 1500));
-          const prev = allReviews.length;
-          addReviews(scrapeReviewsFromDOM());
-          console.log(`[ReviewRadar] Page ${page} (DOM fallback): +${allReviews.length - prev}, total ${allReviews.length}`);
-          if (allReviews.length === prev) break; // 새 리뷰 없음 → 종료
+          const hasNextPage = !!doc?.querySelector('li.a-last:not(.a-disabled)');
+          cleanup({ reviews, hasNextPage });
+        } catch (e) {
+          console.warn('[ReviewRadar] iframe access error:', e.message);
+          cleanup(null);
         }
-      }
-    } finally {
-      window.removeEventListener('message', msgHandler);
+      };
+
+      iframe.onerror = () => cleanup(null);
+      document.body.appendChild(iframe);
+      iframe.src = url; // src는 DOM 추가 후 설정
+    });
+  }
+
+  async function scrapeViaIframes(asin) {
+    const baseUrl = getReviewsBaseUrl(asin);
+    console.log(`[ReviewRadar] iframe base URL: ${baseUrl}`);
+
+    // 1페이지 먼저 테스트 (차단 여부 확인)
+    const first = await loadViaIframe(`${baseUrl}?ie=UTF8&reviewerType=all_reviews&pageNumber=1`);
+    if (!first || first.reviews.length === 0) {
+      console.log('[ReviewRadar] iframe strategy failed, no reviews on page 1');
+      return [];
     }
 
-    console.log(`[ReviewRadar] Tier-2: ${allReviews.length} reviews collected`);
+    const allReviews = [...first.reviews];
+    const seen = new Set(allReviews.map(r => r.id));
+    if (!first.hasNextPage) return allReviews;
+
+    // 2페이지~ 병렬 로딩 (3개씩)
+    let page = 2;
+    while (page <= IFRAME_MAX_PAGES) {
+      const batch = Array.from(
+        { length: Math.min(3, IFRAME_MAX_PAGES - page + 1) },
+        (_, i) => page + i
+      );
+      const results = await Promise.all(
+        batch.map(p => loadViaIframe(`${baseUrl}?ie=UTF8&reviewerType=all_reviews&pageNumber=${p}`))
+      );
+
+      let anyNew = false;
+      results.forEach(r => {
+        if (!r?.reviews?.length) return;
+        r.reviews.forEach(rev => {
+          if (!seen.has(rev.id)) { seen.add(rev.id); allReviews.push(rev); anyNew = true; }
+        });
+      });
+
+      if (!anyNew) break;
+
+      const lastGood = [...results].reverse().find(r => r?.reviews?.length > 0);
+      if (!lastGood?.hasNextPage) break;
+
+      page += batch.length;
+    }
+
+    console.log(`[ReviewRadar] Tier-2 (iframe): ${allReviews.length} reviews`);
     return allReviews;
   }
 
@@ -354,10 +386,10 @@ window.AmazonScraper = (() => {
     // 1순위: 임베딩 JSON (SSR 데이터 있는 경우)
     let reviews = tryExtractEmbeddedJSON();
 
-    // 2순위: 페이지 내 버튼 클릭 → Amazon AJAX 인터셉트 (최대 100개)
+    // 2순위: 숨겨진 iframe으로 product-reviews 페이지 로딩 (최대 50개)
     if (!reviews || reviews.length === 0) {
-      console.log('[ReviewRadar] Tier-1 miss → paginating via clicks...');
-      reviews = await scrapeWithPagination();
+      console.log('[ReviewRadar] Tier-1 miss → iframe strategy...');
+      if (product.asin) reviews = await scrapeViaIframes(product.asin);
     }
 
     // 3순위: DOM 파싱 (최후 수단, 10개)
