@@ -105,8 +105,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
  */
 function scrapeReviewPageDOM() {
   const loc = window.location.href;
-  if (loc.includes('/ap/') || loc.includes('/signin') || loc.includes('robot-check')) {
-    return { reviews: [], hasNextPage: false, blocked: true };
+  // 로그인 페이지 / 봇 차단 / CAPTCHA 등 다양한 리다이렉트 패턴 감지
+  const blocked =
+    loc.includes('/ap/') ||
+    loc.includes('/signin') ||
+    loc.includes('sign-in') ||
+    loc.includes('robot-check') ||
+    loc.includes('/captcha') ||
+    loc.includes('validateCaptcha');
+  if (blocked) {
+    return { reviews: [], hasNextPage: false, blocked: true, url: loc };
   }
 
   const containers = document.querySelectorAll('[data-hook="review"]');
@@ -157,7 +165,7 @@ function scrapeReviewPageDOM() {
   });
 
   const hasNextPage = !!document.querySelector('li.a-last:not(.a-disabled) a');
-  return { reviews, hasNextPage };
+  return { reviews, hasNextPage, url: loc };
 }
 
 /** URL을 새 비활성 탭에서 로드하고 scrapeReviewPageDOM 결과를 반환 */
@@ -179,9 +187,16 @@ function loadReviewPageTab(url) {
           target: { tabId },
           func: scrapeReviewPageDOM,
         });
+        const result = res ? res.result : null;
+        if (result) {
+          console.log('[ReviewRadar] Tab loaded:', result.url ? result.url.slice(0, 80) : '?',
+            '| reviews:', result.reviews.length,
+            result.blocked ? '| BLOCKED' : '');
+        }
         await chrome.tabs.remove(tabId);
-        resolve(res ? res.result : null);
-      } catch {
+        resolve(result);
+      } catch (e) {
+        console.warn('[ReviewRadar] executeScript error:', e.message);
         try { await chrome.tabs.remove(tabId); } catch {}
         resolve(null);
       }
