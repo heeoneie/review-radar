@@ -277,15 +277,8 @@ window.AmazonScraper = (() => {
     // 1순위: 임베딩 JSON (SSR 데이터 있는 경우)
     let reviews = tryExtractEmbeddedJSON();
 
-    // 2순위: 숨겨진 iframe으로 product-reviews 페이지 로딩 (최대 50개)
+    // 2순위: DOM 파싱 (fallback — 전체 리뷰는 service worker의 chrome.tabs 방식으로 수집)
     if (!reviews || reviews.length === 0) {
-      console.log('[ReviewRadar] Tier-1 miss → iframe strategy...');
-      if (product.asin) reviews = await scrapeViaIframes(product.asin);
-    }
-
-    // 3순위: DOM 파싱 (최후 수단, 10개)
-    if (!reviews || reviews.length === 0) {
-      console.log('[ReviewRadar] Tier-2 miss → DOM fallback');
       reviews = scrapeReviewsFromDOM();
     }
 
