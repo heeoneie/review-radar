@@ -1,0 +1,274 @@
+/* ============================================================
+   Review Radar — Popup Styles
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --c-a:       #16a34a;
+  --c-b:       #65a30d;
+  --c-c:       #ca8a04;
+  --c-d:       #ea580c;
+  --c-f:       #dc2626;
+
+  --bg:        #ffffff;
+  --surface:   #f9fafb;
+  --border:    #e5e7eb;
+  --text:      #111827;
+  --muted:     #6b7280;
+  --primary:   #4f46e5;
+  --primary-h: #4338ca;
+
+  --radius:    8px;
+  --font:      -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+body {
+  width: 320px;
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* ── 헤더 ── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.header__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.header__icon { font-size: 18px; }
+
+.header__version {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--border);
+  padding: 2px 6px;
+  border-radius: 99px;
+}
+
+/* ── 섹션 ── */
+.section {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.badge-optional {
+  font-size: 10px;
+  background: #ede9fe;
+  color: #7c3aed;
+  padding: 1px 5px;
+  border-radius: 99px;
+  text-transform: none;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+/* ── 현재 페이지 상태 ── */
+.status--idle .status__msg {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  padding: 8px 0;
+}
+
+.status--result { }
+
+.result-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 0;
+}
+
+.result-grade {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.rr-grade-a { background: var(--c-a); }
+.rr-grade-b { background: var(--c-b); }
+.rr-grade-c { background: var(--c-c); }
+.rr-grade-d { background: var(--c-d); }
+.rr-grade-f { background: var(--c-f); }
+
+.result-score {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.result-desc {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.result-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* ── API 키 ── */
+.api-row {
+  display: flex;
+  gap: 6px;
+}
+
+.input {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: monospace;
+  color: var(--text);
+  background: var(--bg);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.input:focus {
+  border-color: var(--primary);
+}
+
+.btn-icon {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0 10px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.1s;
+}
+
+.btn-icon:hover { background: var(--border); }
+
+.api-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn {
+  flex: 1;
+  padding: 8px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn--primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.btn--primary:hover { background: var(--primary-h); }
+
+.btn--ghost {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.btn--ghost:hover { background: var(--border); }
+
+.hint {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.api-status {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+}
+
+.api-status--ok  { background: #f0fdf4; color: #15803d; }
+.api-status--err { background: #fef2f2; color: #b91c1c; }
+
+/* ── 통계 ── */
+.stats-row {
+  display: flex;
+  gap: 8px;
+}
+
+.stat {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  text-align: center;
+}
+
+.stat__val {
+  display: block;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.stat__key {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ── 푸터 ── */
+.footer {
+  padding: 10px 16px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.footer a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.footer a:hover { text-decoration: underline; }
+
+/* ── 유틸 ── */
+.hidden { display: none !important; }
