@@ -74,13 +74,17 @@
     return m ? m[1] : null;
   }
 
+  // 캐시 키에 extension 버전 포함 → 코드 업데이트(⟳) 시 자동으로 새 분석 실행
+  const EXT_VER = chrome.runtime.getManifest().version;
+  const cacheKey = (asin) => `rr_${EXT_VER}_${asin}`;
+
   function getCached(asin) {
     try {
-      const raw = localStorage.getItem(`rr_${asin}`);
+      const raw = localStorage.getItem(cacheKey(asin));
       if (!raw) return null;
       const data = JSON.parse(raw);
       if (Date.now() - data.analyzedAt > 86_400_000) {
-        localStorage.removeItem(`rr_${asin}`);
+        localStorage.removeItem(cacheKey(asin));
         return null;
       }
       return data;
@@ -88,8 +92,7 @@
   }
 
   function setCache(asin, data) {
-    try { localStorage.setItem(`rr_${asin}`, JSON.stringify(data)); } catch {}
-    // popup이 service worker 경유로 조회하므로 chrome.storage에도 동기화
+    try { localStorage.setItem(cacheKey(asin), JSON.stringify(data)); } catch {}
     chrome.runtime.sendMessage({ type: 'SET_CACHE', asin, data });
   }
 
@@ -206,7 +209,7 @@
       panel.classList.remove('rr-panel--open')
     );
     panel.querySelector('#rr-refresh').addEventListener('click', () => {
-      try { localStorage.removeItem(`rr_${ASIN}`); } catch {}
+      try { localStorage.removeItem(cacheKey(ASIN)); } catch {}
       chrome.runtime.sendMessage({ type: 'SET_CACHE', asin: ASIN, data: null });
       location.reload();
     });

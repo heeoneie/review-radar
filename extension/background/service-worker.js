@@ -7,10 +7,17 @@
 
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === 'install') {
-    chrome.storage.local.set({
-      stats: { analyzed: 0, fakesDetected: 0 },
+    chrome.storage.local.set({ stats: { analyzed: 0, fakesDetected: 0 } });
+  }
+
+  // install 또는 update(⟳ 리로드 포함) 시 분석 캐시 전체 삭제
+  // → 코드 변경 후 extension 리로드하면 자동으로 새 분석 실행
+  if (reason === 'install' || reason === 'update') {
+    chrome.storage.local.get(null, items => {
+      const staleKeys = Object.keys(items).filter(k => k.startsWith('cache_'));
+      if (staleKeys.length > 0) chrome.storage.local.remove(staleKeys);
+      console.log(`[ReviewRadar] ${reason}: cleared ${staleKeys.length} cached analyses`);
     });
-    console.log('[ReviewRadar] Extension installed');
   }
 });
 
