@@ -1,0 +1,14 @@
+{
+  "appName": {
+    "message": "리뷰 레이더",
+    "description": "확장 프로그램 이름"
+  },
+  "appShortName": {
+    "message": "ReviewRadar",
+    "description": "짧은 이름"
+  },
+  "appDescription": {
+    "message": "아마존 상품 페이지의 가짜 리뷰를 패턴 분석과 AI로 탐지합니다.",
+    "description": "크롬 웹스토어에 표시되는 설명"
+  }
+}
