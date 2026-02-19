@@ -88,91 +88,86 @@ window.AmazonScraper = (() => {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 2순위: 전체 리뷰 fetch (5개씩 병렬, 페이지 제한 없음)
+  // 2순위: 페이지 내 pagination 버튼 클릭 → Amazon 자체 AJAX 유발 → 인터셉터 캐치
+  // (직접 fetch는 Amazon이 Sec-Fetch-Mode 헤더로 차단하므로 이 방식 사용)
   // ─────────────────────────────────────────────────────────────────────────
 
-  const FETCH_BATCH = 5; // 동시 요청 수
+  const PAGE_LIMIT = 10; // 최대 10페이지 클릭 (100개)
 
-  // 현재 페이지에서 "See all reviews" 링크 URL 베이스 추출 (product slug 포함)
-  function getReviewsBaseUrl(asin) {
-    const el = document.querySelector(
-      '[data-hook="see-all-reviews-link-foot"], ' +
-      '[data-hook="see-all-reviews-link-top"], ' +
-      `a[href*="product-reviews/${asin}"]`
+  function injectInterceptor() {
+    if (document.getElementById('rr-interceptor')) return;
+    const script = document.createElement('script');
+    script.id  = 'rr-interceptor';
+    script.src = chrome.runtime.getURL('content/interceptor.js');
+    (document.head || document.documentElement).appendChild(script);
+  }
+
+  // 다음 페이지 버튼 셀렉터 (다양한 Amazon DOM 구조 대응)
+  function findNextPageBtn() {
+    return document.querySelector(
+      '[data-hook="review-next-page-button"], ' +
+      '#cm_cr-pagination_bar .a-last:not(.a-disabled) a, ' +
+      '.cr-widget-Reviews .a-pagination .a-last:not(.a-disabled) a, ' +
+      '#reviews-paginationbar .a-last:not(.a-disabled) a, ' +
+      '.a-pagination .a-last:not(.a-disabled) a'
     );
-    if (el?.href) return el.href.split('?')[0].split('#')[0];
-    return `https://www.amazon.com/product-reviews/${asin}`;
   }
 
-  async function fetchReviewPage(baseUrl, pageNum) {
-    const url = `${baseUrl}?ie=UTF8&reviewerType=all_reviews&pageNumber=${pageNum}`;
-    try {
-      const res = await fetch(url, {
-        credentials: 'include',
-        headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
-      });
-      if (!res.ok) {
-        console.warn(`[ReviewRadar] Page ${pageNum}: HTTP ${res.status}`);
-        return null;
-      }
-      if (res.url.includes('/ap/') || res.url.includes('/robot')) {
-        console.warn(`[ReviewRadar] Page ${pageNum}: redirected to login/captcha`);
-        return null;
-      }
-
-      const html = await res.text();
-      const doc  = new DOMParser().parseFromString(html, 'text/html');
-
-      const reviewEls = doc.querySelectorAll('[data-hook="review"]');
-      console.log(`[ReviewRadar] Page ${pageNum}: ${reviewEls.length} reviews (${res.url.slice(0, 80)})`);
-      if (reviewEls.length === 0) return null;
-
-      const reviews = [];
-      reviewEls.forEach((el, idx) => {
-        const r = parseSingleReview(el, `p${pageNum}-${idx}`);
-        if (r?.body?.length > 0) reviews.push(r);
-      });
-
-      const hasNextPage = !!doc.querySelector('li.a-last:not(.a-disabled)');
-      return { reviews, hasNextPage };
-    } catch (e) {
-      console.warn(`[ReviewRadar] Page ${pageNum} fetch error:`, e);
-      return null;
-    }
-  }
-
-  async function fetchAllReviews(asin) {
-    const baseUrl = getReviewsBaseUrl(asin);
-    console.log(`[ReviewRadar] Review base URL: ${baseUrl}`);
+  async function scrapeWithPagination() {
+    injectInterceptor();
 
     const allReviews = [];
     const seen = new Set();
-    let startPage = 1;
+    const addReviews = (list) => list.forEach(r => {
+      if (r?.body?.length > 0 && !seen.has(r.id)) { seen.add(r.id); allReviews.push(r); }
+    });
 
-    while (true) {
-      const pageNums = Array.from({ length: FETCH_BATCH }, (_, i) => startPage + i);
-      const settled  = await Promise.allSettled(pageNums.map(p => fetchReviewPage(baseUrl, p)));
+    // 인터셉터 메시지 리스너 (클릭당 다음 AJAX 응답 하나만 대기)
+    let pendingResolve = null;
+    const msgHandler = (e) => {
+      if (e.data?.__rrType !== 'REVIEWS_INTERCEPTED' || !pendingResolve) return;
+      const reviews = e.data.reviews.map(r => ({ ...r, date: r.date ? new Date(r.date) : null }));
+      pendingResolve(reviews);
+      pendingResolve = null;
+    };
+    window.addEventListener('message', msgHandler);
 
-      // 이 배치에서 리뷰가 있는 마지막 페이지 인덱스 찾기
-      let lastFilledIdx = -1;
-      settled.forEach((r, i) => {
-        if (r.status !== 'fulfilled' || !r.value?.reviews?.length) return;
-        lastFilledIdx = i;
-        r.value.reviews.forEach(rev => {
-          if (!seen.has(rev.id)) { seen.add(rev.id); allReviews.push(rev); }
-        });
-      });
+    const waitForAjax = (ms = 4000) => new Promise(resolve => {
+      pendingResolve = resolve;
+      setTimeout(() => { if (pendingResolve === resolve) { pendingResolve = null; resolve(null); } }, ms);
+    });
 
-      if (lastFilledIdx === -1) break; // 배치 전체에 리뷰 없음 → 종료
+    try {
+      // 1페이지: 현재 DOM 파싱
+      addReviews(scrapeReviewsFromDOM());
+      console.log(`[ReviewRadar] Page 1 (DOM): ${allReviews.length} reviews`);
 
-      const lastFilled = settled[lastFilledIdx].value;
-      if (!lastFilled.hasNextPage) break; // 마지막 유효 페이지 도달 → 종료
+      // 2페이지~: Next 버튼 클릭 → AJAX 인터셉트
+      for (let page = 2; page <= PAGE_LIMIT; page++) {
+        const nextBtn = findNextPageBtn();
+        if (!nextBtn) { console.log('[ReviewRadar] No next page button, stopping'); break; }
 
-      console.log(`[ReviewRadar] Fetched ${allReviews.length} reviews so far...`);
-      startPage += FETCH_BATCH;
+        const ajaxPromise = waitForAjax(4000);
+        nextBtn.click();
+
+        const intercepted = await ajaxPromise;
+        if (intercepted && intercepted.length > 0) {
+          addReviews(intercepted);
+          console.log(`[ReviewRadar] Page ${page} (AJAX): +${intercepted.length}, total ${allReviews.length}`);
+        } else {
+          // AJAX 미수신 시 DOM 재파싱 (fallback)
+          await new Promise(r => setTimeout(r, 1500));
+          const prev = allReviews.length;
+          addReviews(scrapeReviewsFromDOM());
+          console.log(`[ReviewRadar] Page ${page} (DOM fallback): +${allReviews.length - prev}, total ${allReviews.length}`);
+          if (allReviews.length === prev) break; // 새 리뷰 없음 → 종료
+        }
+      }
+    } finally {
+      window.removeEventListener('message', msgHandler);
     }
 
-    console.log(`[ReviewRadar] Tier-2: total ${allReviews.length} reviews fetched`);
+    console.log(`[ReviewRadar] Tier-2: ${allReviews.length} reviews collected`);
     return allReviews;
   }
 
@@ -359,13 +354,13 @@ window.AmazonScraper = (() => {
     // 1순위: 임베딩 JSON (SSR 데이터 있는 경우)
     let reviews = tryExtractEmbeddedJSON();
 
-    // 2순위: 리뷰 페이지 직접 fetch (최대 5페이지 = 50개)
+    // 2순위: 페이지 내 버튼 클릭 → Amazon AJAX 인터셉트 (최대 100개)
     if (!reviews || reviews.length === 0) {
-      console.log('[ReviewRadar] Tier-1 miss → fetching review pages...');
-      if (product.asin) reviews = await fetchAllReviews(product.asin);
+      console.log('[ReviewRadar] Tier-1 miss → paginating via clicks...');
+      reviews = await scrapeWithPagination();
     }
 
-    // 3순위: DOM 파싱 (현재 페이지 10개, 최후 수단)
+    // 3순위: DOM 파싱 (최후 수단, 10개)
     if (!reviews || reviews.length === 0) {
       console.log('[ReviewRadar] Tier-2 miss → DOM fallback');
       reviews = scrapeReviewsFromDOM();
